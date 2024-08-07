@@ -12,6 +12,8 @@ struct ContentView: View {
     @State private var sortOrder: SortOrder = .none
     @State private var searchText: String = ""
     @State private var isFormVisible: Bool = false
+    @State private var showSaveConfirmation = false
+    @State private var showCancelConfirmation = false
     @FocusState private var focusedField: Field? // Add focus state
 
     private let aliasesFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".bash_aliases").path
@@ -145,7 +147,9 @@ struct ContentView: View {
             if hasUnsavedChanges {
                 HStack {
                     // Save Button
-                    Button(action: applyChanges) {
+                    Button(action: {
+                        showSaveConfirmation = true
+                    }) {
                         HStack {
                             Image(systemName: "square.and.arrow.down")
                                 .font(.system(size: 24))
@@ -157,11 +161,22 @@ struct ContentView: View {
                                 .frame(maxWidth: .infinity, alignment: .center) // Center text horizontally
                         }
                     }
-                    .disabled(!hasUnsavedChanges) // Disable button if no unsaved changes
                     .padding()
+                    .alert(isPresented: $showSaveConfirmation) {
+                        Alert(
+                            title: Text("Confirm Save"),
+                            message: Text("Do you want to save the changes?"),
+                            primaryButton: .default(Text("Save")) {
+                                applyChanges()
+                            },
+                            secondaryButton: .cancel()
+                        )
+                    }
 
                     // Cancel Button
-                    Button(action: cancelChanges) {
+                    Button(action: {
+                        showCancelConfirmation = true
+                    }) {
                         HStack {
                             Image(systemName: "xmark")
                                 .font(.system(size: 24))
@@ -173,8 +188,17 @@ struct ContentView: View {
                                 .frame(maxWidth: .infinity, alignment: .center) // Center text horizontally
                         }
                     }
-                    .disabled(!hasUnsavedChanges) // Disable button if no unsaved changes
                     .padding()
+                    .alert(isPresented: $showCancelConfirmation) {
+                        Alert(
+                            title: Text("Confirm Cancel"),
+                            message: Text("Do you want to discard all changes?"),
+                            primaryButton: .destructive(Text("Discard")) {
+                                cancelChanges()
+                            },
+                            secondaryButton: .cancel()
+                        )
+                    }
                 }
             }
         }
@@ -265,61 +289,45 @@ struct ContentView: View {
             return
         }
 
-        tempAliases.append(Alias(alias: alias, command: command))
+        let newAlias = Alias(alias: alias, command: command)
+        tempAliases.append(newAlias)
         alias = ""
         command = ""
-        checkUnsavedChanges() // Check unsaved changes after addition
     }
 
-    private func updateAlias(_ oldAlias: Alias) {
+    private func updateAlias(_ aliasToUpdate: Alias) {
         guard !alias.isEmpty, !command.isEmpty else {
             print("Alias or command is empty, skipping update.")
             return
         }
 
-        if tempAliases.contains(where: { $0.alias == alias && $0.id != oldAlias.id }) {
-            showCollisionWarning = true
-            return
+        if let index = tempAliases.firstIndex(where: { $0.id == aliasToUpdate.id }) {
+            tempAliases[index] = Alias(alias: alias, command: command)
         }
 
-        if let index = tempAliases.firstIndex(where: { $0.id == oldAlias.id }) {
-            tempAliases[index] = Alias(alias: alias, command: command)
-            alias = ""
-            command = ""
-            checkUnsavedChanges() // Check unsaved changes after update
-        }
+        alias = ""
+        command = ""
+        editingAlias = nil
     }
 
-    private func deleteAlias(_ alias: Alias) {
-        if let index = tempAliases.firstIndex(where: { $0.id == alias.id }) {
-            tempAliases.remove(at: index)
-            aliasToDelete = nil
-            checkUnsavedChanges() // Check unsaved changes after delete
-        }
+    private func deleteAlias(_ aliasToDelete: Alias) {
+        tempAliases.removeAll { $0.id == aliasToDelete.id }
     }
 
     private func applyChanges() {
         aliases = tempAliases
         saveAliases()
-        checkUnsavedChanges() // Check unsaved changes after apply
     }
 
     private func cancelChanges() {
         tempAliases = aliases
-        alias = ""
-        command = ""
-        editingAlias = nil
-        isFormVisible = false // Hide the form when canceling changes
-        focusedField = nil // Remove focus
-        checkUnsavedChanges() // Check unsaved changes after cancel
     }
 
     private func saveAliases() {
-        print("Saving aliases to file: \(aliasesFile)")
         let content = aliases.map { "alias \($0.alias)='\($0.command)'" }.joined(separator: "\n")
         do {
             try content.write(toFile: aliasesFile, atomically: true, encoding: .utf8)
-            print("Aliases saved successfully.")
+            print("Successfully saved aliases to file.")
         } catch {
             print("Failed to save aliases: \(error)")
         }
